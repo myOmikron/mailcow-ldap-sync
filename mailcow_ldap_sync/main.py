@@ -120,6 +120,63 @@ def main(conf, db):
             db.add(db_user)
         else:
             for existing in db.query(User).filter_by(uid=uid):
+                existing_mailcow = json.loads(requests.get(
+                    f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                    headers={"X-API-Key": conf['mailcow_api_key']}
+                ).text)
+
+                if existing_mailcow:
+                    logger.debug(f"LDAP user {uid} does exist in mailcow")
+                    data = {
+                        "attr": {
+                            "active": active,
+                            "name": full_name,
+                            "password": password,
+                            "password2": password,
+                            "quota": quota,
+                            "tls_enforce_in": tls_enforce_in,
+                            "tls_enforce_out": tls_enforce_out
+                        },
+                        "items": [
+                            mail
+                        ]
+                    }
+                    response = json.loads(requests.post(
+                        f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
+                        data=json.dumps(data),
+                        headers={
+                            "X-API-Key": conf['mailcow_api_key'],
+                            "accept": "application/json",
+                            "Content-Type": "application/json"
+                        }
+                    ).text)
+                    if "mailbox_modified" in response[0]["msg"]:
+                        logger.info(f"LDAP user {uid} was modified in mailcow")
+                else:
+                    logger.debug(f"LDAP user {uid} does not exist in mailcow")
+                    data = {
+                        "active": active,
+                        "domain": domain,
+                        "local_part": local_part,
+                        "name": full_name,
+                        "password": password,
+                        "password2": password,
+                        "quota": quota,
+                        "force_pw_update": "0",
+                        "tls_enforce_in": tls_enforce_in,
+                        "tls_enforce_out": tls_enforce_out
+                    }
+                    response = json.loads(requests.post(
+                        f"https://{conf['mailcow_host']}/api/v1/add/mailbox",
+                        data=json.dumps(data),
+                        headers={
+                            "accept": "application/json",
+                            "Content-Type": "application/json",
+                            "X-API-Key": conf['mailcow_api_key']
+                        }
+                    ).text)
+                    if "mailbox_added" in response[0]["msg"]:
+                        logger.info(f"LDAP user {uid} was added in mailcow")
                 existing.active = active
                 existing.mail = mail
                 existing.first_name = first_name
