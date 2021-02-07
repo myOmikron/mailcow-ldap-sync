@@ -128,7 +128,28 @@ def main(conf, db):
                 existing.quota = quota
                 existing.tls_enforce_in = tls_enforce_in
                 existing.tls_enforce_out = tls_enforce_out
+
         db.commit()
+    db_user = [user.uid for user in db.query(User).all()]
+    ldap_user = [user[0] for user in results]
+    for user in db_user:
+        if user not in ldap_user:
+            for x in db.query(User).filter_by(uid=user):
+                data = [
+                    x.mail
+                ]
+                response = json.loads(requests.post(
+                    f"https://{conf['mailcow_host']}/api/v1/delete/mailbox",
+                    data=json.dumps(data),
+                    headers={
+                        "accept": "application/json",
+                        "Content-Type": "application/json",
+                        "X-API-Key": conf['mailcow_api_key']
+                    }
+                ).text)
+                if "mailbox_removed" in response[0]["msg"]:
+                    db.delete(x)
+    db.commit()
 
 
 default_config = {
