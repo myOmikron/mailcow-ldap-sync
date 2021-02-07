@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 from json.decoder import JSONDecodeError
 
 import requests
@@ -10,12 +11,19 @@ from sqlalchemy.orm import sessionmaker
 import ldap
 
 
+logger = logging.getLogger("mailcow_ldap_sync")
+
+
 def main(conf, db):
+    logger.info(f"Connecting to {conf['ldap']['uri']}")
     ldap_conn = ldap.initialize(conf["ldap"]["uri"])
+    logger.info(f"Connected to {conf['ldap']['uri']}")
     if conf["ldap"]["allow_self_signed"]:
         ldap_conn.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
     ldap_conn.protocol_version = ldap.VERSION3
+    logger.info(f"Trying to bind as {conf['ldap']['bind_dn']}")
     ldap_conn.simple_bind_s(conf["ldap"]["bind_dn"], conf["ldap"]["bind_pw"])
+    logger.info(f"Successfully bind as {conf['ldap']['bind_dn']}")
     results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE, conf["ldap"]["user_search_filter"])
     ldap_conn.unbind_s()
 
@@ -50,12 +58,14 @@ def main(conf, db):
         ).count()
 
         if existing == 0:
+            logger.debug(f"LDAP user {uid} does not exist in local db")
             existing_mailcow = json.loads(requests.get(
                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
                 headers={"X-API-Key": conf['mailcow_api_key']}
             ).text)
 
             if existing_mailcow:
+                logger.debug(f"LDAP user {uid} does exist in mailcow")
                 data = {
                     "attr": {
                         "active": active,
@@ -80,8 +90,9 @@ def main(conf, db):
                     }
                 ).text)
                 if "mailbox_modified" in response[0]["msg"]:
-                    pass
+                    logger.info(f"LDAP user {uid} was modified in mailcow")
             else:
+                logger.debug(f"LDAP user {uid} does not exist in mailcow")
                 data = {
                     "active": active,
                     "domain": domain,
@@ -104,7 +115,7 @@ def main(conf, db):
                     }
                 ).text)
                 if "mailbox_added" in response[0]["msg"]:
-                    pass
+                    logger.info(f"LDAP user {uid} was added in mailcow")
 
             db_user = User(
                 uid=uid,
@@ -118,7 +129,9 @@ def main(conf, db):
                 tls_enforce_out=tls_enforce_out
             )
             db.add(db_user)
+            logger.debug(f"LDAP user {uid} was added to local db")
         else:
+            logger.debug(f"LDAP user {uid} was found in local db")
             for existing in db.query(User).filter_by(uid=uid):
                 existing_mailcow = json.loads(requests.get(
                     f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
@@ -185,6 +198,7 @@ def main(conf, db):
                 existing.quota = quota
                 existing.tls_enforce_in = tls_enforce_in
                 existing.tls_enforce_out = tls_enforce_out
+                logger.debug(f"LDAP user {uid} was updated in local db")
 
         db.commit()
     db_user = [user.uid for user in db.query(User).all()]
@@ -192,6 +206,7 @@ def main(conf, db):
     for user in db_user:
         if user not in ldap_user:
             for x in db.query(User).filter_by(uid=user):
+                logger.debug(f"Local user {x.uid} was not found in LDAP")
                 data = [
                     x.mail
                 ]
@@ -205,7 +220,9 @@ def main(conf, db):
                     }
                 ).text)
                 if "mailbox_removed" in response[0]["msg"]:
+                    logger.info(f"Local user {x.uid} was deleted in mailcow")
                     db.delete(x)
+                    logger.debug(f"Local user {x.uid} was deleted in local db")
     db.commit()
 
 
@@ -250,6 +267,7 @@ def get_config():
 
 if __name__ == '__main__':
     config = get_config()
+    logging.basicConfig(filename='mailcow_ldap_sync.log', level=logging.INFO)
 
     Base = declarative_base()
 
