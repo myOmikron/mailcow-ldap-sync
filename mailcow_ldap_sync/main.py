@@ -15,11 +15,12 @@ logger = logging.getLogger("mailcow_ldap_sync")
 
 
 def main(conf, db):
+    if conf["ldap"]["allow_self_signed"]:
+        logger.info("Allowing selfsigned certs")
+        ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
     logger.info(f"Connecting to {conf['ldap']['uri']}")
     ldap_conn = ldap.initialize(conf["ldap"]["uri"])
     logger.info(f"Connected to {conf['ldap']['uri']}")
-    if conf["ldap"]["allow_self_signed"]:
-        ldap_conn.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
     ldap_conn.protocol_version = ldap.VERSION3
     logger.info(f"Trying to bind as {conf['ldap']['bind_dn']}")
     ldap_conn.simple_bind_s(conf["ldap"]["bind_dn"], conf["ldap"]["bind_pw"])
