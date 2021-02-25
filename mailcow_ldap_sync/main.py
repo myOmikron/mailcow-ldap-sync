@@ -26,6 +26,7 @@ def main(conf, db):
     ldap_conn.simple_bind_s(conf["ldap"]["bind_dn"], conf["ldap"]["bind_pw"])
     logger.info(f"Successfully bind as {conf['ldap']['bind_dn']}")
     results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE, conf["ldap"]["user_search_filter"])
+    logger.debug(f"Search results: {results}")
     ldap_conn.unbind_s()
 
     for user in results:
