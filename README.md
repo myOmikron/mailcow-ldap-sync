@@ -8,8 +8,12 @@ It also compares the values in mailcow with its intermediate database and correc
 There are following prerequisites:
 - `python3`
 - `python3-pip`
+- `python-dev`
+- `libldap2-dev`
+- `libsasl2-dev`
+- `libssl-dev`
 
-# optional, if you don't want to use a venv
+optional, if you don't want to use a venv
 - `python3-venv`
 
 ```
