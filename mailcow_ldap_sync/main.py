@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import logging
@@ -9,11 +10,18 @@ from sqlalchemy.orm import sessionmaker
 
 import ldap
 
-
 logger = logging.getLogger("mailcow_ldap_sync")
 
 
-def main(conf, db):
+def is_diff(mailcow_response, active, full_name, quota, tls_enforce_in, tls_enforce_out):
+    return mailcow_response["active"] != active or \
+           mailcow_response["name"] != full_name or \
+           mailcow_response["quota"] != quota or \
+           mailcow_response["attributes"]["tls_enforce_in"] != str(tls_enforce_in) or \
+           mailcow_response["attributes"]["tls_enforce_out"] != str(tls_enforce_out)
+
+
+def main(conf, db, change_only_by_ldap=False):
     if conf["ldap"]["allow_self_signed"]:
         logger.info("Allowing selfsigned certs")
         ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
@@ -24,7 +32,8 @@ def main(conf, db):
     logger.info(f"Trying to bind as {conf['ldap']['bind_dn']}")
     ldap_conn.simple_bind_s(conf["ldap"]["bind_dn"], conf["ldap"]["bind_pw"])
     logger.info(f"Successfully bind as {conf['ldap']['bind_dn']}")
-    results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE, conf["ldap"]["user_search_filter"])
+    results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE,
+                                 conf["ldap"]["user_search_filter"])
     logger.debug(f"Search results: {results}")
     ldap_conn.unbind_s()
 
@@ -67,26 +76,34 @@ def main(conf, db):
 
             if existing_mailcow:
                 logger.debug(f"LDAP user {uid} does exist in mailcow")
-                data = {
-                    "attr": {
-                        "password": password,
-                        "password2": password,
-                    },
-                    "items": [
-                        mail
-                    ]
-                }
-                response = requests.post(
-                    f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
-                    json=data,
-                    headers={
-                        "X-API-Key": conf['mailcow_api_key'],
-                        "accept": "application/json",
-                        "Content-Type": "application/json"
+                if not change_only_by_ldap or is_diff(
+                        existing_mailcow, active, full_name, quota, tls_enforce_in, tls_enforce_out
+                ):
+                    data = {
+                        "attr": {
+                            "active": active,
+                            "name": full_name,
+                            "password": password,
+                            "password2": password,
+                            "quota": quota,
+                            "tls_enforce_in": tls_enforce_in,
+                            "tls_enforce_out": tls_enforce_out
+                        },
+                        "items": [
+                            mail
+                        ]
                     }
-                ).json()
-                if "mailbox_modified" in response[0]["msg"]:
-                    logger.info(f"LDAP user {uid} was modified in mailcow")
+                    response = requests.post(
+                        f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
+                        json=data,
+                        headers={
+                            "X-API-Key": conf['mailcow_api_key'],
+                            "accept": "application/json",
+                            "Content-Type": "application/json"
+                        }
+                    ).json()
+                    if "mailbox_modified" in response[0]["msg"]:
+                        logger.info(f"LDAP user {uid} was modified in mailcow")
             else:
                 logger.debug(f"LDAP user {uid} does not exist in mailcow")
                 data = {
@@ -135,40 +152,43 @@ def main(conf, db):
                 ).json()
 
                 if existing_mailcow:
-                    logger.debug(f"LDAP user {uid} does exist in mailcow")
-                    data = {
-                        "attr": {
-                            "active": active,
-                            "name": full_name,
-                            "password": password,
-                            "password2": password,
-                            "quota": quota,
-                            "tls_enforce_in": tls_enforce_in,
-                            "tls_enforce_out": tls_enforce_out
-                        },
-                        "items": [
-                            mail
-                        ]
-                    }
-                    logger.info(requests.get(
-                        f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                        headers={"X-API-Key": conf['mailcow_api_key']}
-                    ).json())
-                    response = requests.post(
-                        f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
-                        json=data,
-                        headers={
-                            "X-API-Key": conf['mailcow_api_key'],
-                            "accept": "application/json",
-                            "Content-Type": "application/json"
+                    if not change_only_by_ldap or is_diff(
+                            existing_mailcow, active, full_name, quota, tls_enforce_in, tls_enforce_out
+                    ):
+                        logger.debug(f"LDAP user {uid} does exist in mailcow")
+                        data = {
+                            "attr": {
+                                "active": active,
+                                "name": full_name,
+                                "password": password,
+                                "password2": password,
+                                "quota": quota,
+                                "tls_enforce_in": tls_enforce_in,
+                                "tls_enforce_out": tls_enforce_out
+                            },
+                            "items": [
+                                mail
+                            ]
                         }
-                    ).json()
-                    logger.info(requests.get(
-                        f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                        headers={"X-API-Key": conf['mailcow_api_key']}
-                    ).json())
-                    if "mailbox_modified" in response[0]["msg"]:
-                        logger.info(f"LDAP user {uid} was modified in mailcow")
+                        logger.info(requests.get(
+                            f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                            headers={"X-API-Key": conf['mailcow_api_key']}
+                        ).json())
+                        response = requests.post(
+                            f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
+                            json=data,
+                            headers={
+                                "X-API-Key": conf['mailcow_api_key'],
+                                "accept": "application/json",
+                                "Content-Type": "application/json"
+                            }
+                        ).json()
+                        logger.info(requests.get(
+                            f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                            headers={"X-API-Key": conf['mailcow_api_key']}
+                        ).json())
+                        if "mailbox_modified" in response[0]["msg"]:
+                            logger.info(f"LDAP user {uid} was modified in mailcow")
                 else:
                     logger.debug(f"LDAP user {uid} does not exist in mailcow")
                     data = {
@@ -270,10 +290,22 @@ def get_config():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--update-only-on-change-by-ldap",
+        action="store_true",
+        dest="change",
+        help="Specify, if an updated should only be invoked, if any diff between LDAP, DB or mailcow is recognized."
+             "Caution: As passwords can only be retrieved by LDAP, there's no way to check, if the password was changed"
+             "in mailcow."
+    )
+    args = parser.parse_args()
+
     config = get_config()
     logging.basicConfig(filename='mailcow_ldap_sync.log', level=logging.INFO)
 
     Base = declarative_base()
+
 
     class User(Base):
         __tablename__ = "user"
@@ -294,4 +326,4 @@ if __name__ == '__main__':
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
 
-    main(config, session)
+    main(config, session, change_only_by_ldap=args.change)

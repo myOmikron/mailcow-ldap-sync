@@ -12,8 +12,6 @@ There are following prerequisites:
 - `libldap2-dev`
 - `libsasl2-dev`
 - `libssl-dev`
-
-optional, if you don't want to use a venv
 - `python3-venv`
 
 ```
@@ -61,4 +59,12 @@ The easiest way to archive this is to execute the script with a cron job in the 
 **Note**:
 You have to `cd` first in the directory as the script generates a few files relative to the current working directory.
 
+### Arguments:
 
+As all users are overwritten constantly, I added the option `--update-only-on-change-by-ldap` to allow
+updates only on a diff between data retrieved by LDAP and mailcow.
+
+**Caution**:
+
+As mailcow does not respond with password hashes, there's no way to detect a changed password in mailcow. 
+Only attributes like `active`, `quota` and so on are checked. 
