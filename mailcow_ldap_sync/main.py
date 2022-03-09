@@ -1,7 +1,6 @@
 import json
 import os
 import logging
-from json.decoder import JSONDecodeError
 
 import requests
 from sqlalchemy import Integer, Column, String, create_engine
@@ -61,36 +60,31 @@ def main(conf, db):
 
         if existing == 0:
             logger.debug(f"LDAP user {uid} does not exist in local db")
-            existing_mailcow = json.loads(requests.get(
+            existing_mailcow = requests.get(
                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
                 headers={"X-API-Key": conf['mailcow_api_key']}
-            ).text)
+            ).json()
 
             if existing_mailcow:
                 logger.debug(f"LDAP user {uid} does exist in mailcow")
                 data = {
                     "attr": {
-                        "active": active,
-                        "name": full_name,
                         "password": password,
                         "password2": password,
-                        "quota": quota,
-                        "tls_enforce_in": tls_enforce_in,
-                        "tls_enforce_out": tls_enforce_out
                     },
                     "items": [
                         mail
                     ]
                 }
-                response = json.loads(requests.post(
+                response = requests.post(
                     f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
-                    data=json.dumps(data),
+                    json=data,
                     headers={
                         "X-API-Key": conf['mailcow_api_key'],
                         "accept": "application/json",
                         "Content-Type": "application/json"
                     }
-                ).text)
+                ).json()
                 if "mailbox_modified" in response[0]["msg"]:
                     logger.info(f"LDAP user {uid} was modified in mailcow")
             else:
@@ -107,15 +101,15 @@ def main(conf, db):
                     "tls_enforce_in": tls_enforce_in,
                     "tls_enforce_out": tls_enforce_out
                 }
-                response = json.loads(requests.post(
+                response = requests.post(
                     f"https://{conf['mailcow_host']}/api/v1/add/mailbox",
-                    data=json.dumps(data),
+                    json=data,
                     headers={
                         "accept": "application/json",
                         "Content-Type": "application/json",
                         "X-API-Key": conf['mailcow_api_key']
                     }
-                ).text)
+                ).json()
                 if "mailbox_added" in response[0]["msg"]:
                     logger.info(f"LDAP user {uid} was added in mailcow")
 
@@ -135,10 +129,10 @@ def main(conf, db):
         else:
             logger.debug(f"LDAP user {uid} was found in local db")
             for existing in db.query(User).filter_by(uid=uid):
-                existing_mailcow = json.loads(requests.get(
+                existing_mailcow = requests.get(
                     f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
                     headers={"X-API-Key": conf['mailcow_api_key']}
-                ).text)
+                ).json()
 
                 if existing_mailcow:
                     logger.debug(f"LDAP user {uid} does exist in mailcow")
@@ -156,15 +150,23 @@ def main(conf, db):
                             mail
                         ]
                     }
-                    response = json.loads(requests.post(
+                    logger.info(requests.get(
+                        f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                        headers={"X-API-Key": conf['mailcow_api_key']}
+                    ).json())
+                    response = requests.post(
                         f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
-                        data=json.dumps(data),
+                        json=data,
                         headers={
                             "X-API-Key": conf['mailcow_api_key'],
                             "accept": "application/json",
                             "Content-Type": "application/json"
                         }
-                    ).text)
+                    ).json()
+                    logger.info(requests.get(
+                        f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                        headers={"X-API-Key": conf['mailcow_api_key']}
+                    ).json())
                     if "mailbox_modified" in response[0]["msg"]:
                         logger.info(f"LDAP user {uid} was modified in mailcow")
                 else:
@@ -181,15 +183,15 @@ def main(conf, db):
                         "tls_enforce_in": tls_enforce_in,
                         "tls_enforce_out": tls_enforce_out
                     }
-                    response = json.loads(requests.post(
+                    response = requests.post(
                         f"https://{conf['mailcow_host']}/api/v1/add/mailbox",
-                        data=json.dumps(data),
+                        json=data,
                         headers={
                             "accept": "application/json",
                             "Content-Type": "application/json",
                             "X-API-Key": conf['mailcow_api_key']
                         }
-                    ).text)
+                    ).json()
                     if "mailbox_added" in response[0]["msg"]:
                         logger.info(f"LDAP user {uid} was added in mailcow")
                 existing.active = active
@@ -212,15 +214,15 @@ def main(conf, db):
                 data = [
                     x.mail
                 ]
-                response = json.loads(requests.post(
+                response = requests.post(
                     f"https://{conf['mailcow_host']}/api/v1/delete/mailbox",
-                    data=json.dumps(data),
+                    json=data,
                     headers={
                         "accept": "application/json",
                         "Content-Type": "application/json",
                         "X-API-Key": conf['mailcow_api_key']
                     }
-                ).text)
+                ).json()
                 if "mailbox_removed" in response[0]["msg"]:
                     logger.info(f"Local user {x.uid} was deleted in mailcow")
                     db.delete(x)
@@ -258,7 +260,7 @@ def get_config():
         with open("config.json") as fh:
             try:
                 return json.load(fh)
-            except JSONDecodeError:
+            except json.JSONDecodeError:
                 print("Malformed config, exiting..")
                 exit(1)
     else:
@@ -276,7 +278,7 @@ if __name__ == '__main__':
     class User(Base):
         __tablename__ = "user"
         id = Column(Integer, autoincrement=True, unique=True, primary_key=True)
-        uid=Column(String)
+        uid = Column(String)
         active = Column(String)
         mail = Column(String)
         first_name = Column(String)
