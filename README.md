@@ -61,6 +61,10 @@ You have to `cd` first in the directory as the script generates a few files rela
 
 ### Arguments:
 
+#### `--override-filter`:
+This option overrides the filter defined in your `config.json` with a given string.
+
+#### `--update-only-on-change-by-ldap`:
 As all users are overwritten constantly, I added the option `--update-only-on-change-by-ldap` to allow
 updates only on a diff between data retrieved by LDAP and mailcow.
 
