@@ -1,14 +1,13 @@
 import argparse
 import json
-import os
 import logging
-
-import requests
-from sqlalchemy import Integer, Column, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+import os
 
 import ldap
+import requests
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger("mailcow_ldap_sync")
 
@@ -32,8 +31,7 @@ def main(conf, db, change_only_by_ldap=False):
     logger.info(f"Trying to bind as {conf['ldap']['bind_dn']}")
     ldap_conn.simple_bind_s(conf["ldap"]["bind_dn"], conf["ldap"]["bind_pw"])
     logger.info(f"Successfully bind as {conf['ldap']['bind_dn']}")
-    results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE,
-                                 conf["ldap"]["user_search_filter"])
+    results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE, conf["ldap"]["user_search_filter"])
     logger.debug(f"Search results: {results}")
     ldap_conn.unbind_s()
 
@@ -63,9 +61,7 @@ def main(conf, db, change_only_by_ldap=False):
             tls_enforce_out = user_params[conf['ldap']['user_mapping']['tls_enforce_out']][0].decode('utf-8')
         else:
             tls_enforce_out = "1"
-        existing = db.query(User).filter_by(
-            uid=uid
-        ).count()
+        existing = db.query(User).filter_by(uid=uid).count()
 
         if existing == 0:
             logger.debug(f"LDAP user {uid} does not exist in local db")
@@ -89,9 +85,7 @@ def main(conf, db, change_only_by_ldap=False):
                             "tls_enforce_in": tls_enforce_in,
                             "tls_enforce_out": tls_enforce_out
                         },
-                        "items": [
-                            mail
-                        ]
+                        "items": [mail]
                     }
                     response = requests.post(
                         f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
@@ -153,7 +147,7 @@ def main(conf, db, change_only_by_ldap=False):
 
                 if existing_mailcow:
                     if not change_only_by_ldap or is_diff(
-                            existing_mailcow, active, full_name, quota, tls_enforce_in, tls_enforce_out
+                            existing_mailcow, active, full_name, quota,tls_enforce_in, tls_enforce_out
                     ):
                         logger.debug(f"LDAP user {uid} does exist in mailcow")
                         data = {
@@ -166,14 +160,14 @@ def main(conf, db, change_only_by_ldap=False):
                                 "tls_enforce_in": tls_enforce_in,
                                 "tls_enforce_out": tls_enforce_out
                             },
-                            "items": [
-                                mail
-                            ]
+                            "items": [mail]
                         }
-                        logger.info(requests.get(
-                            f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                            headers={"X-API-Key": conf['mailcow_api_key']}
-                        ).json())
+                        logger.info(
+                            requests.get(
+                                f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                                headers={"X-API-Key": conf['mailcow_api_key']}
+                            ).json()
+                        )
                         response = requests.post(
                             f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
                             json=data,
@@ -183,10 +177,12 @@ def main(conf, db, change_only_by_ldap=False):
                                 "Content-Type": "application/json"
                             }
                         ).json()
-                        logger.info(requests.get(
-                            f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                            headers={"X-API-Key": conf['mailcow_api_key']}
-                        ).json())
+                        logger.info(
+                            requests.get(
+                                f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
+                                headers={"X-API-Key": conf['mailcow_api_key']}
+                            ).json()
+                        )
                         if "mailbox_modified" in response[0]["msg"]:
                             logger.info(f"LDAP user {uid} was modified in mailcow")
                 else:
@@ -231,9 +227,7 @@ def main(conf, db, change_only_by_ldap=False):
         if user not in ldap_user:
             for x in db.query(User).filter_by(uid=user):
                 logger.debug(f"Local user {x.uid} was not found in LDAP")
-                data = [
-                    x.mail
-                ]
+                data = [x.mail]
                 response = requests.post(
                     f"https://{conf['mailcow_host']}/api/v1/delete/mailbox",
                     json=data,
@@ -299,13 +293,22 @@ if __name__ == '__main__':
              "Caution: As passwords can only be retrieved by LDAP, there's no way to check, if the password was changed"
              "in mailcow."
     )
+    parser.add_argument(
+        "--override-filter",
+        action="store",
+        dest="override_filter",
+        help="If specified, the user_search_filter is overwritten with the given value."
+    )
     args = parser.parse_args()
 
     config = get_config()
+
+    if args.override_filter != "":
+        config["ldap"]["user_search_filter"] = args.override_filter
+
     logging.basicConfig(filename='mailcow_ldap_sync.log', level=logging.INFO)
 
     Base = declarative_base()
-
 
     class User(Base):
         __tablename__ = "user"
@@ -319,7 +322,6 @@ if __name__ == '__main__':
         quota = Column(String)
         tls_enforce_in = Column(String)
         tls_enforce_out = Column(String)
-
 
     engine = create_engine(f"sqlite:///mailcow.sqlite3")
     Base.metadata.create_all(engine)
