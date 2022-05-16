@@ -303,7 +303,8 @@ if __name__ == '__main__':
 
     config = get_config()
 
-    if args.override_filter != "":
+    print(args.override_filter)
+    if args.override_filter and args.override_filter != "":
         config["ldap"]["user_search_filter"] = args.override_filter
 
     logging.basicConfig(filename='mailcow_ldap_sync.log', level=logging.INFO)
