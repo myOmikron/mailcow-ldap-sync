@@ -61,6 +61,9 @@ You have to `cd` first in the directory as the script generates a few files rela
 
 ### Arguments:
 
+#### `--do-not-verify`
+This options disabled the verification of the TLS certificate of the mailcow host.
+
 #### `--override-filter`:
 This option overrides the filter defined in your `config.json` with a given string.
 

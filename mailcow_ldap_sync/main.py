@@ -13,15 +13,20 @@ from sqlalchemy.orm import sessionmaker
 logger = logging.getLogger("mailcow_ldap_sync")
 
 
-def is_diff(mailcow_response, active, full_name, quota, tls_enforce_in, tls_enforce_out):
-    return mailcow_response["active"] != active or \
-           mailcow_response["name"] != full_name or \
-           mailcow_response["quota"] != quota or \
-           mailcow_response["attributes"]["tls_enforce_in"] != str(tls_enforce_in) or \
-           mailcow_response["attributes"]["tls_enforce_out"] != str(tls_enforce_out)
+def is_diff(
+    mailcow_response, active, full_name, quota, tls_enforce_in, tls_enforce_out
+):
+    return (
+        mailcow_response["active"] != active
+        or mailcow_response["name"] != full_name
+        or mailcow_response["quota"] != quota
+        or mailcow_response["attributes"]["tls_enforce_in"] != str(tls_enforce_in)
+        or mailcow_response["attributes"]["tls_enforce_out"] != str(tls_enforce_out)
+    )
 
 
 def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
+    verify = not do_not_verify
     if conf["ldap"]["allow_self_signed"]:
         logger.info("Allowing selfsigned certs")
         ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
@@ -32,34 +37,52 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
     logger.info(f"Trying to bind as {conf['ldap']['bind_dn']}")
     ldap_conn.simple_bind_s(conf["ldap"]["bind_dn"], conf["ldap"]["bind_pw"])
     logger.info(f"Successfully bind as {conf['ldap']['bind_dn']}")
-    results = ldap_conn.search_s(conf["ldap"]["user_search_base"], ldap.SCOPE_SUBTREE, conf["ldap"]["user_search_filter"])
+    results = ldap_conn.search_s(
+        conf["ldap"]["user_search_base"],
+        ldap.SCOPE_SUBTREE,
+        conf["ldap"]["user_search_filter"],
+    )
     logger.debug(f"Search results: {results}")
     ldap_conn.unbind_s()
 
     for user in results:
         user_params = user[1]
         uid = user[0]
-        first_name = user_params[conf['ldap']['user_mapping']['firstname']][0].decode('utf-8')
-        last_name = user_params[conf['ldap']['user_mapping']['lastname']][0].decode('utf-8')
+        first_name = user_params[conf["ldap"]["user_mapping"]["firstname"]][0].decode(
+            "utf-8"
+        )
+        last_name = user_params[conf["ldap"]["user_mapping"]["lastname"]][0].decode(
+            "utf-8"
+        )
         full_name = f"{first_name} {last_name}"
-        mail = user_params[conf['ldap']['user_mapping']['mail']][0].decode('utf-8')
-        domain = mail.split('@')[1]
-        local_part = mail.split('@')[0]
-        password = user_params[conf['ldap']['user_mapping']['password']][0].decode('utf-8')
-        if 'quota' in conf['ldap']['user_mapping']:
-            quota = user_params[conf['ldap']['user_mapping']['quota']][0].decode('utf-8')
+        mail = user_params[conf["ldap"]["user_mapping"]["mail"]][0].decode("utf-8")
+        domain = mail.split("@")[1]
+        local_part = mail.split("@")[0]
+        password = user_params[conf["ldap"]["user_mapping"]["password"]][0].decode(
+            "utf-8"
+        )
+        if "quota" in conf["ldap"]["user_mapping"]:
+            quota = user_params[conf["ldap"]["user_mapping"]["quota"]][0].decode(
+                "utf-8"
+            )
         else:
             quota = "0"
-        if not '' == conf['ldap']['user_mapping']['active']:
-            active = user_params[conf['ldap']['user_mapping']['active']][0].decode('utf-8')
+        if not "" == conf["ldap"]["user_mapping"]["active"]:
+            active = user_params[conf["ldap"]["user_mapping"]["active"]][0].decode(
+                "utf-8"
+            )
         else:
             active = "1"
-        if not '' == conf['ldap']['user_mapping']['tls_enforce_in']:
-            tls_enforce_in = user_params[conf['ldap']['user_mapping']['tls_enforce_in']][0].decode('utf-8')
+        if not "" == conf["ldap"]["user_mapping"]["tls_enforce_in"]:
+            tls_enforce_in = user_params[
+                conf["ldap"]["user_mapping"]["tls_enforce_in"]
+            ][0].decode("utf-8")
         else:
             tls_enforce_in = "1"
-        if not '' == conf['ldap']['user_mapping']['tls_enforce_out']:
-            tls_enforce_out = user_params[conf['ldap']['user_mapping']['tls_enforce_out']][0].decode('utf-8')
+        if not "" == conf["ldap"]["user_mapping"]["tls_enforce_out"]:
+            tls_enforce_out = user_params[
+                conf["ldap"]["user_mapping"]["tls_enforce_out"]
+            ][0].decode("utf-8")
         else:
             tls_enforce_out = "1"
         existing = db.query(User).filter_by(uid=uid).count()
@@ -68,14 +91,19 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
             logger.debug(f"LDAP user {uid} does not exist in local db")
             existing_mailcow = requests.get(
                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                headers={"X-API-Key": conf['mailcow_api_key']},
-                verify=!do_not_verify
+                headers={"X-API-Key": conf["mailcow_api_key"]},
+                verify=verify,
             ).json()
 
             if existing_mailcow:
                 logger.debug(f"LDAP user {uid} does exist in mailcow")
                 if not change_only_by_ldap or is_diff(
-                        existing_mailcow, active, full_name, quota, tls_enforce_in, tls_enforce_out
+                    existing_mailcow,
+                    active,
+                    full_name,
+                    quota,
+                    tls_enforce_in,
+                    tls_enforce_out,
                 ):
                     data = {
                         "attr": {
@@ -85,19 +113,19 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                             "password2": password,
                             "quota": quota,
                             "tls_enforce_in": tls_enforce_in,
-                            "tls_enforce_out": tls_enforce_out
+                            "tls_enforce_out": tls_enforce_out,
                         },
-                        "items": [mail]
+                        "items": [mail],
                     }
                     response = requests.post(
                         f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
                         json=data,
                         headers={
-                            "X-API-Key": conf['mailcow_api_key'],
+                            "X-API-Key": conf["mailcow_api_key"],
                             "accept": "application/json",
-                            "Content-Type": "application/json"
+                            "Content-Type": "application/json",
                         },
-                        verify=!do_not_verify
+                        verify=verify,
                     ).json()
                     if "mailbox_modified" in response[0]["msg"]:
                         logger.info(f"LDAP user {uid} was modified in mailcow")
@@ -113,7 +141,7 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                     "quota": quota,
                     "force_pw_update": "0",
                     "tls_enforce_in": tls_enforce_in,
-                    "tls_enforce_out": tls_enforce_out
+                    "tls_enforce_out": tls_enforce_out,
                 }
                 response = requests.post(
                     f"https://{conf['mailcow_host']}/api/v1/add/mailbox",
@@ -121,9 +149,9 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                     headers={
                         "accept": "application/json",
                         "Content-Type": "application/json",
-                        "X-API-Key": conf['mailcow_api_key']
+                        "X-API-Key": conf["mailcow_api_key"],
                     },
-                    verify=!do_not_verify
+                    verify=verify,
                 ).json()
                 if "mailbox_added" in response[0]["msg"]:
                     logger.info(f"LDAP user {uid} was added in mailcow")
@@ -137,7 +165,7 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                 password=password,
                 quota=quota,
                 tls_enforce_in=tls_enforce_in,
-                tls_enforce_out=tls_enforce_out
+                tls_enforce_out=tls_enforce_out,
             )
             db.add(db_user)
             logger.debug(f"LDAP user {uid} was added to local db")
@@ -146,13 +174,18 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
             for existing in db.query(User).filter_by(uid=uid):
                 existing_mailcow = requests.get(
                     f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                    headers={"X-API-Key": conf['mailcow_api_key']},
-                    verify=!do_not_verify
+                    headers={"X-API-Key": conf["mailcow_api_key"]},
+                    verify=verify,
                 ).json()
 
                 if existing_mailcow:
                     if not change_only_by_ldap or is_diff(
-                            existing_mailcow, active, full_name, quota,tls_enforce_in, tls_enforce_out
+                        existing_mailcow,
+                        active,
+                        full_name,
+                        quota,
+                        tls_enforce_in,
+                        tls_enforce_out,
                     ):
                         logger.debug(f"LDAP user {uid} does exist in mailcow")
                         data = {
@@ -163,32 +196,32 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                                 "password2": password,
                                 "quota": quota,
                                 "tls_enforce_in": tls_enforce_in,
-                                "tls_enforce_out": tls_enforce_out
+                                "tls_enforce_out": tls_enforce_out,
                             },
-                            "items": [mail]
+                            "items": [mail],
                         }
                         logger.info(
                             requests.get(
                                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                                headers={"X-API-Key": conf['mailcow_api_key']},
-                                verify=!do_not_verify
+                                headers={"X-API-Key": conf["mailcow_api_key"]},
+                                verify=verify,
                             ).json()
                         )
                         response = requests.post(
                             f"https://{conf['mailcow_host']}/api/v1/edit/mailbox",
                             json=data,
                             headers={
-                                "X-API-Key": conf['mailcow_api_key'],
+                                "X-API-Key": conf["mailcow_api_key"],
                                 "accept": "application/json",
-                                "Content-Type": "application/json"
+                                "Content-Type": "application/json",
                             },
-                            verify=!do_not_verify
+                            verify=verify,
                         ).json()
                         logger.info(
                             requests.get(
                                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                                headers={"X-API-Key": conf['mailcow_api_key']},
-                                verify=!do_not_verify
+                                headers={"X-API-Key": conf["mailcow_api_key"]},
+                                verify=verify,
                             ).json()
                         )
                         if "mailbox_modified" in response[0]["msg"]:
@@ -205,7 +238,7 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                         "quota": quota,
                         "force_pw_update": "0",
                         "tls_enforce_in": tls_enforce_in,
-                        "tls_enforce_out": tls_enforce_out
+                        "tls_enforce_out": tls_enforce_out,
                     }
                     response = requests.post(
                         f"https://{conf['mailcow_host']}/api/v1/add/mailbox",
@@ -213,9 +246,9 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                         headers={
                             "accept": "application/json",
                             "Content-Type": "application/json",
-                            "X-API-Key": conf['mailcow_api_key']
+                            "X-API-Key": conf["mailcow_api_key"],
                         },
-                        verify=!do_not_verify
+                        verify=verify,
                     ).json()
                     if "mailbox_added" in response[0]["msg"]:
                         logger.info(f"LDAP user {uid} was added in mailcow")
@@ -243,9 +276,9 @@ def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
                     headers={
                         "accept": "application/json",
                         "Content-Type": "application/json",
-                        "X-API-Key": conf['mailcow_api_key']
+                        "X-API-Key": conf["mailcow_api_key"],
                     },
-                    verify=!do_not_verify
+                    verify=verify,
                 ).json()
                 if "mailbox_removed" in response[0]["msg"]:
                     logger.info(f"Local user {x.uid} was deleted in mailcow")
@@ -272,10 +305,10 @@ default_config = {
             "active": "",
             "tls_enforce_in": "",
             "tls_enforce_out": "",
-        }
+        },
     },
     "mailcow_host": "mail.example.com",
-    "mailcow_api_key": ""
+    "mailcow_api_key": "",
 }
 
 
@@ -293,27 +326,27 @@ def get_config():
             raise Exception("Config was not found, created new one")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--update-only-on-change-by-ldap",
         action="store_true",
         dest="change",
         help="Specify, if an updated should only be invoked, if any diff between LDAP, DB or mailcow is recognized."
-             "Caution: As passwords can only be retrieved by LDAP, there's no way to check, if the password was changed"
-             "in mailcow."
+        "Caution: As passwords can only be retrieved by LDAP, there's no way to check, if the password was changed"
+        "in mailcow.",
     )
     parser.add_argument(
         "--override-filter",
         action="store",
         dest="override_filter",
-        help="If specified, the user_search_filter is overwritten with the given value."
+        help="If specified, the user_search_filter is overwritten with the given value.",
     )
     parser.add_argument(
         "--do-not-verify",
         action="store_true",
         dest="do_not_verify",
-        help="If specified, the TLS certificate of mailcow won't be verified."
+        help="If specified, the TLS certificate of mailcow won't be verified.",
     )
     args = parser.parse_args()
 
@@ -323,7 +356,7 @@ if __name__ == '__main__':
     if args.override_filter and args.override_filter != "":
         config["ldap"]["user_search_filter"] = args.override_filter
 
-    logging.basicConfig(filename='mailcow_ldap_sync.log', level=logging.INFO)
+    logging.basicConfig(filename="mailcow_ldap_sync.log", level=logging.INFO)
 
     Base = declarative_base()
 
@@ -349,5 +382,5 @@ if __name__ == '__main__':
         config,
         session,
         change_only_by_ldap=args.change,
-        do_not_verify=args.do_not_verify
+        do_not_verify=args.do_not_verify,
     )
