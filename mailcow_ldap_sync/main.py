@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+from queue import Queue
 
 import ldap
 import requests
@@ -20,7 +21,7 @@ def is_diff(mailcow_response, active, full_name, quota, tls_enforce_in, tls_enfo
            mailcow_response["attributes"]["tls_enforce_out"] != str(tls_enforce_out)
 
 
-def main(conf, db, change_only_by_ldap=False):
+def main(conf, db, change_only_by_ldap=False, do_not_verify=False):
     if conf["ldap"]["allow_self_signed"]:
         logger.info("Allowing selfsigned certs")
         ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
@@ -67,7 +68,8 @@ def main(conf, db, change_only_by_ldap=False):
             logger.debug(f"LDAP user {uid} does not exist in local db")
             existing_mailcow = requests.get(
                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                headers={"X-API-Key": conf['mailcow_api_key']}
+                headers={"X-API-Key": conf['mailcow_api_key']},
+                verify=!do_not_verify
             ).json()
 
             if existing_mailcow:
@@ -94,7 +96,8 @@ def main(conf, db, change_only_by_ldap=False):
                             "X-API-Key": conf['mailcow_api_key'],
                             "accept": "application/json",
                             "Content-Type": "application/json"
-                        }
+                        },
+                        verify=!do_not_verify
                     ).json()
                     if "mailbox_modified" in response[0]["msg"]:
                         logger.info(f"LDAP user {uid} was modified in mailcow")
@@ -119,7 +122,8 @@ def main(conf, db, change_only_by_ldap=False):
                         "accept": "application/json",
                         "Content-Type": "application/json",
                         "X-API-Key": conf['mailcow_api_key']
-                    }
+                    },
+                    verify=!do_not_verify
                 ).json()
                 if "mailbox_added" in response[0]["msg"]:
                     logger.info(f"LDAP user {uid} was added in mailcow")
@@ -142,7 +146,8 @@ def main(conf, db, change_only_by_ldap=False):
             for existing in db.query(User).filter_by(uid=uid):
                 existing_mailcow = requests.get(
                     f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                    headers={"X-API-Key": conf['mailcow_api_key']}
+                    headers={"X-API-Key": conf['mailcow_api_key']},
+                    verify=!do_not_verify
                 ).json()
 
                 if existing_mailcow:
@@ -165,7 +170,8 @@ def main(conf, db, change_only_by_ldap=False):
                         logger.info(
                             requests.get(
                                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                                headers={"X-API-Key": conf['mailcow_api_key']}
+                                headers={"X-API-Key": conf['mailcow_api_key']},
+                                verify=!do_not_verify
                             ).json()
                         )
                         response = requests.post(
@@ -175,12 +181,14 @@ def main(conf, db, change_only_by_ldap=False):
                                 "X-API-Key": conf['mailcow_api_key'],
                                 "accept": "application/json",
                                 "Content-Type": "application/json"
-                            }
+                            },
+                            verify=!do_not_verify
                         ).json()
                         logger.info(
                             requests.get(
                                 f"https://{conf['mailcow_host']}/api/v1/get/mailbox/{mail}",
-                                headers={"X-API-Key": conf['mailcow_api_key']}
+                                headers={"X-API-Key": conf['mailcow_api_key']},
+                                verify=!do_not_verify
                             ).json()
                         )
                         if "mailbox_modified" in response[0]["msg"]:
@@ -206,7 +214,8 @@ def main(conf, db, change_only_by_ldap=False):
                             "accept": "application/json",
                             "Content-Type": "application/json",
                             "X-API-Key": conf['mailcow_api_key']
-                        }
+                        },
+                        verify=!do_not_verify
                     ).json()
                     if "mailbox_added" in response[0]["msg"]:
                         logger.info(f"LDAP user {uid} was added in mailcow")
@@ -235,7 +244,8 @@ def main(conf, db, change_only_by_ldap=False):
                         "accept": "application/json",
                         "Content-Type": "application/json",
                         "X-API-Key": conf['mailcow_api_key']
-                    }
+                    },
+                    verify=!do_not_verify
                 ).json()
                 if "mailbox_removed" in response[0]["msg"]:
                     logger.info(f"Local user {x.uid} was deleted in mailcow")
@@ -299,6 +309,12 @@ if __name__ == '__main__':
         dest="override_filter",
         help="If specified, the user_search_filter is overwritten with the given value."
     )
+    parser.add_argument(
+        "--do-not-verify",
+        action="store_true",
+        dest="do_not_verify",
+        help="If specified, the TLS certificate of mailcow won't be verified."
+    )
     args = parser.parse_args()
 
     config = get_config()
@@ -329,4 +345,9 @@ if __name__ == '__main__':
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
 
-    main(config, session, change_only_by_ldap=args.change)
+    main(
+        config,
+        session,
+        change_only_by_ldap=args.change,
+        do_not_verify=args.do_not_verify
+    )
